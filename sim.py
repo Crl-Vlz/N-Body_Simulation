@@ -5,10 +5,10 @@ from pycuda.compiler import SourceModule
 import matplotlib.pyplot as plt
 
 class Particle:
-    def __init__(self, num_particles, mean = 0, std_dev = 1):
-        self.position = (np.random.normal(mean, std_dev, (num_particles, 3)).astype(np.float32) - 0.5) * 1_000  # Use smaller values
-        self.velocity = np.zeros((num_particles, 3), dtype=np.float32)
-        self.mass = np.random.rand(num_particles).astype(np.float32) * 10000  # Ensure masses are non-zero and not too large
+    def __init__(self, num_particles, mean=0, std_dev=1):
+        self.position = np.random.normal(mean, std_dev, (num_particles, 3)).astype(np.float32)  # Use smaller values
+        self.velocity = np.random.normal(0, 1, (num_particles, 3)).astype(np.float32)  # Random initial velocities
+        self.mass = (np.random.rand(num_particles).astype(np.float32) + 0.1) * 100  # Ensure masses are non-zero and not too large
 
 kernel_code = """
 __global__ void calculateForces(float3 *positions, float3 *forces, float *masses, int num_particles) {
@@ -47,13 +47,40 @@ __global__ void integrate(float3 *positions, float3 *velocities, float3 *forces,
     
     float3 acceleration = make_float3(force.x / mass, force.y / mass, force.z / mass);
 
-    velocity.x += acceleration.x * dt;
-    velocity.y += acceleration.y * dt;
-    velocity.z += acceleration.z * dt;
+    // Add damping to prevent velocities from getting too large
+    float damping = 0.99;
+    velocity.x = (velocity.x + acceleration.x * dt) * damping;
+    velocity.y = (velocity.y + acceleration.y * dt) * damping;
+    velocity.z = (velocity.z + acceleration.z * dt) * damping;
 
     position.x += velocity.x * dt;
     position.y += velocity.y * dt;
     position.z += velocity.z * dt;
+
+    // Check for cube boundaries
+    if (position.x < -1e6*.5f) {
+        position.x = -1e6*.5f;
+        velocity.x = -velocity.x;
+    } else if (position.x > 1e6*.5f) {
+        position.x = 1e6*.5f;
+        velocity.x = -velocity.x;
+    }
+
+    if (position.y < -1e6*.5f) {
+        position.y = -1e6*.5f;
+        velocity.y = -velocity.y;
+    } else if (position.y > 1e6*.5f) {
+        position.y = 1e6*.5f;
+        velocity.y = -velocity.y;
+    }
+
+    if (position.z < -1e6*.5f) {
+        position.z = -1e6*.5f;
+        velocity.z = -velocity.z;
+    } else if (position.z > 1e6*.5f) {
+        position.z = 1e6*.5f;
+        velocity.z = -velocity.z;
+    }
 
     velocities[i] = velocity;
     positions[i] = position;
@@ -113,13 +140,13 @@ def run_simulation(particles, num_particles, num_iterations, dt):
     ax_traj = fig_traj.add_subplot(111, projection='3d')
     for i in range(num_particles):
         trajectory = np.array([pos[i] for pos in positions_history])
-        ax_traj.plot(trajectory[:, 0], trajectory[:, 1], trajectory[:, 2])
+        ax_traj.plot(trajectory[:, 0], trajectory[:, 1], trajectory[:, 2], color=plt.cm.viridis(i / num_particles))
     plt.show()
 
 if __name__ == "__main__":
-    num_particles = 100
-    num_iterations = 1000
-    dt = 1000
+    num_particles = 200
+    num_iterations = 500
+    dt = 1500  # Smaller time step
 
     particles = Particle(num_particles, std_dev=100)
     run_simulation(particles, num_particles, num_iterations, dt)
